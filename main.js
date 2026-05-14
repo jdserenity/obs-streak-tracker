@@ -326,21 +326,44 @@ class StreakTrackerPlugin extends Plugin {
     await this.app.vault.adapter.write(dataPath, jsonStr);
   }
 
+  normalizeLoadedConfig(parsed) {
+    const config = parsed && typeof parsed === "object" ? parsed : {};
+    if (!Array.isArray(config.activities)) config.activities = [];
+    if (!Array.isArray(config.archivedActivities)) config.archivedActivities = [];
+    return config;
+  }
+
   async loadActivityConfig() {
     const configPath = this.data.settings.configFilePath || "Archive/streak-tracker-config.md";
     const file = this.app.vault.getAbstractFileByPath(configPath);
 
     if (!file) {
-      return { activities: [] };
+      return this.normalizeLoadedConfig({ activities: [] });
     }
 
     try {
       const content = await this.app.vault.read(file);
-      return JSON.parse(content);
+      return this.normalizeLoadedConfig(JSON.parse(content));
     } catch (e) {
       console.error("Failed to load streak tracker config:", e);
-      return { activities: [] };
+      return this.normalizeLoadedConfig({ activities: [] });
     }
+  }
+
+  async archiveActivity(activity) {
+    const config = await this.loadActivityConfig();
+    const idx = config.activities.findIndex((a) => a.id === activity.id);
+    if (idx === -1) return;
+    const [removed] = config.activities.splice(idx, 1);
+    config.archivedActivities.push(removed);
+    if (this.data.pausedActivities?.[activity.id]) {
+      delete this.data.pausedActivities[activity.id];
+    }
+    await this.saveActivityConfig(config);
+    await this.recalculateAllStats();
+    await this.saveVaultData();
+    new Notice("Activity archived");
+    await this.refreshAllTrackers();
   }
 
   async saveActivityConfig(config) {
@@ -912,6 +935,17 @@ class StreakTrackerPlugin extends Plugin {
       await this.refreshAllTrackers();
     });
 
+    const archiveBtnEl = buttonsEl.createEl("button", {
+      text: "🗃",
+      cls: "streak-btn streak-btn-archive streak-btn-secondary",
+      attr: { title: "Archive activity (stored under archivedActivities in config; hidden here)" }
+    });
+    archiveBtnEl.addEventListener("mousedown", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await this.archiveActivity(activity);
+    });
+
     this.renderActivityNameAndStats(activityEl, headerRow, activity, "daily");
 
     if (isPaused) {
@@ -1039,6 +1073,17 @@ class StreakTrackerPlugin extends Plugin {
       await this.recalculateAllStats();
       await this.saveVaultData();
       await this.refreshAllTrackers();
+    });
+
+    const archiveBtnEl = buttonsEl.createEl("button", {
+      text: "🗃",
+      cls: "streak-btn streak-btn-archive streak-btn-secondary",
+      attr: { title: "Archive activity (stored under archivedActivities in config; hidden here)" }
+    });
+    archiveBtnEl.addEventListener("mousedown", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await this.archiveActivity(activity);
     });
 
     this.renderActivityNameAndStats(activityEl, headerRow, activity, "weekly", sessionCount, weeklyTarget);

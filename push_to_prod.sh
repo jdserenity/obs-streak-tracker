@@ -6,7 +6,6 @@ FILES=(main.js styles.css manifest.json)
 
 TARGETS=(
   "/Users/jd/Documents/obsidian-temp/obsidian vault (root)/.obsidian/plugins/streak-tracker"
-  "/Users/jd/Library/CloudStorage/ProtonDrive-jd@levier.cc-folder/obsidian vault (backup)/.obsidian/plugins/streak-tracker"
   "/Users/jd/Library/Mobile Documents/iCloud~md~obsidian/Documents/obsidian vault (ios)/.obsidian/plugins/streak-tracker"
 )
 

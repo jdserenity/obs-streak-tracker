@@ -581,6 +581,22 @@
   color: rgb(249, 115, 22);
 }
 
+/* Archive button — muted filing-box tone */
+.streak-btn-archive {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: 1em;
+  line-height: 1;
+}
+.streak-btn-archive:hover {
+  background: rgba(139, 92, 246, 0.18);
+  color: rgb(167, 139, 250);
+}
+.streak-btn-archive:active {
+  background: rgba(139, 92, 246, 0.28);
+  color: rgb(196, 181, 253);
+}
+
 /* ── Paused activity ─────────────────────────────────────────────────── */
 
 .streak-activity-paused {
