@@ -146,7 +146,7 @@
   font-size: clamp(5px, 58%, 11px);
   line-height: 1;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.95);
+  color: #000;
   pointer-events: none;
   user-select: none;
 }
@@ -237,7 +237,7 @@
   font-size: 9px;
   line-height: 1;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.95);
+  color: #000;
   pointer-events: none;
   user-select: none;
 }
