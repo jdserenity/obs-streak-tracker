@@ -136,6 +136,20 @@
   background: var(--background-modifier-border);
   min-width: 0;
 }
+.streak-heatmap-cell.streak-heatmap-perfect {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.streak-heatmap-check {
+  font-size: clamp(5px, 58%, 11px);
+  line-height: 1;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  pointer-events: none;
+  user-select: none;
+}
 
 .streak-heatmap-cell:hover:not(.streak-heatmap-empty) {
   outline: 1px solid var(--text-muted);
@@ -212,6 +226,20 @@
   border-radius: 2px;
   background: var(--background-modifier-border);
   min-width: 0;
+}
+.streak-weekly-cell.streak-weekly-perfect {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.streak-weekly-check {
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  pointer-events: none;
+  user-select: none;
 }
 
 .streak-weekly-cell:hover:not(.streak-weekly-level-0) {

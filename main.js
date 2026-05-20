@@ -45,6 +45,9 @@ function mergeResetCounts(memCounts, fileCounts) {
   }
   return merged;
 }
+function isPerfectHeatmapCell(done, total) {
+  return total > 0 && done === total;
+}
 
 const DEFAULT_SETTINGS = {
   dayEndTime: "04:00",
@@ -1561,6 +1564,10 @@ class StreakTrackerPlugin extends Plugin {
         cell.classList.add(`streak-heatmap-level-${level}`);
         cell.setAttribute("data-date", dateStr);
         cell.setAttribute("title", `${dateStr}: ${successCount}/${historicalCount} activities`);
+        if (isPerfectHeatmapCell(successCount, historicalCount)) {
+          cell.classList.add("streak-heatmap-perfect");
+          cell.createEl("span", { text: "✓", cls: "streak-heatmap-check" });
+        }
 
         // Apply custom color if set
         if (this.data.settings.heatmapColor && level > 0) {
@@ -1668,6 +1675,10 @@ class StreakTrackerPlugin extends Plugin {
       }
 
       cell.classList.add(`streak-weekly-level-${level}`);
+      if (isPerfectHeatmapCell(completedCount, historicalCount)) {
+        cell.classList.add("streak-weekly-perfect");
+        cell.createEl("span", { text: "✓", cls: "streak-weekly-check" });
+      }
       const wEndDate = this.parseDate(wStart);
       wEndDate.setDate(wEndDate.getDate() + 6);
       const fmtDate = (d) => {
