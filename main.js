@@ -1,4 +1,5 @@
 const { Plugin, PluginSettingTab, Setting, Notice } = require("obsidian");
+const { pausedStateFromVault, mergePausedOnIncoming } = require("./pause-sync");
 
 const DEFAULT_SETTINGS = {
   dayEndTime: "04:00",
@@ -14,7 +15,8 @@ const DEFAULT_DATA = {
   logs: {},
   stats: {},
   activityStartDates: {}, // Track when each activity started being tracked
-  pausedActivities: {}    // activityId → date string of when it was paused
+  pausedActivities: {},   // activityId → date string of when it was paused
+  unpausedActivities: {}  // activityId → date string of when it was last unpaused (sync tombstone)
 };
 
 class StreakTrackerPlugin extends Plugin {
@@ -78,6 +80,9 @@ class StreakTrackerPlugin extends Plugin {
     }
     if (!this.data.pausedActivities) {
       this.data.pausedActivities = {};
+    }
+    if (!this.data.unpausedActivities) {
+      this.data.unpausedActivities = {};
     }
 
     // Migrate .json vault files to .md so they appear in Obsidian's file browser
@@ -170,14 +175,12 @@ class StreakTrackerPlugin extends Plugin {
         }
       }
 
-      // Merge pausedActivities: if paused on either side, keep it paused (use earlier date)
-      const incomingPaused = vaultData.pausedActivities || {};
-      if (!this.data.pausedActivities) this.data.pausedActivities = {};
-      for (const [id, date] of Object.entries(incomingPaused)) {
-        if (!this.data.pausedActivities[id] || date < this.data.pausedActivities[id]) {
-          this.data.pausedActivities[id] = date;
-        }
-      }
+      // pausedActivities: vault file is authoritative on load (respects unpausedActivities tombstones)
+      this.data.unpausedActivities = vaultData.unpausedActivities || {};
+      this.data.pausedActivities = pausedStateFromVault(
+        vaultData.pausedActivities,
+        this.data.unpausedActivities
+      );
 
       // Stats will be recalculated from merged logs
       this.data.stats = vaultData.stats || {};
@@ -232,14 +235,14 @@ class StreakTrackerPlugin extends Plugin {
         }
       }
 
-      // pausedActivities: merge — if paused on either device, keep it paused
-      const memPaused = { ...this.data.pausedActivities };
-      this.data.pausedActivities = vaultData.pausedActivities || {};
-      for (const [id, date] of Object.entries(memPaused)) {
-        if (!this.data.pausedActivities[id] || date < this.data.pausedActivities[id]) {
-          this.data.pausedActivities[id] = date;
-        }
-      }
+      const mergedPaused = mergePausedOnIncoming(
+        this.data.pausedActivities,
+        this.data.unpausedActivities,
+        vaultData.pausedActivities,
+        vaultData.unpausedActivities
+      );
+      this.data.pausedActivities = mergedPaused.pausedActivities;
+      this.data.unpausedActivities = mergedPaused.unpausedActivities;
 
       this.vaultDataLoaded = true;
       await this.recalculateAllStats();
@@ -319,7 +322,8 @@ class StreakTrackerPlugin extends Plugin {
       logs: this.data.logs,
       stats: this.data.stats,
       activityStartDates: this.data.activityStartDates,
-      pausedActivities: this.data.pausedActivities || {}
+      pausedActivities: this.data.pausedActivities || {},
+      unpausedActivities: this.data.unpausedActivities || {}
     };
     const jsonStr = JSON.stringify(vaultData, null, 2);
     this._lastDataWriteHash = this._hashStr(jsonStr);
@@ -358,6 +362,9 @@ class StreakTrackerPlugin extends Plugin {
     config.archivedActivities.push(removed);
     if (this.data.pausedActivities?.[activity.id]) {
       delete this.data.pausedActivities[activity.id];
+    }
+    if (this.data.unpausedActivities?.[activity.id]) {
+      delete this.data.unpausedActivities[activity.id];
     }
     await this.saveActivityConfig(config);
     await this.recalculateAllStats();
@@ -927,8 +934,11 @@ class StreakTrackerPlugin extends Plugin {
       if (!this.data.pausedActivities) this.data.pausedActivities = {};
       if (isPaused) {
         delete this.data.pausedActivities[activity.id];
+        if (!this.data.unpausedActivities) this.data.unpausedActivities = {};
+        this.data.unpausedActivities[activity.id] = this.getCurrentDay();
       } else {
         this.data.pausedActivities[activity.id] = this.getCurrentDay();
+        delete this.data.unpausedActivities?.[activity.id];
       }
       await this.recalculateAllStats();
       await this.saveVaultData();
@@ -1067,8 +1077,11 @@ class StreakTrackerPlugin extends Plugin {
       if (!this.data.pausedActivities) this.data.pausedActivities = {};
       if (isPaused) {
         delete this.data.pausedActivities[activity.id];
+        if (!this.data.unpausedActivities) this.data.unpausedActivities = {};
+        this.data.unpausedActivities[activity.id] = this.getCurrentDay();
       } else {
         this.data.pausedActivities[activity.id] = this.getCurrentDay();
+        delete this.data.unpausedActivities?.[activity.id];
       }
       await this.recalculateAllStats();
       await this.saveVaultData();
@@ -1709,6 +1722,11 @@ class StreakTrackerSettingTab extends PluginSettingTab {
             this.plugin.data.logs = vaultData.logs || {};
             this.plugin.data.stats = vaultData.stats || {};
             this.plugin.data.activityStartDates = vaultData.activityStartDates || {};
+            this.plugin.data.unpausedActivities = vaultData.unpausedActivities || {};
+            this.plugin.data.pausedActivities = pausedStateFromVault(
+              vaultData.pausedActivities,
+              this.plugin.data.unpausedActivities
+            );
             this.plugin.vaultDataLoaded = true;
             await this.plugin.recalculateAllStats();
             await this.plugin.refreshAllTrackers();

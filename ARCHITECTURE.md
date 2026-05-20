@@ -66,7 +66,9 @@ The plugin is designed to work across devices via cloud sync (ProtonDrive, iClou
 - If unpause deleted the key from `this.data.pausedActivities`, merging from disk would immediately restore the key before the file is written, making unpause impossible
 - Cross-device sync (load path) still uses the conservative "keep it paused if either side says so" merge, which is correct when no explicit action has been taken locally
 
-**Bug that was fixed:** The original `saveVaultData()` merge loop iterated `existing.pausedActivities` and restored any key not present in memory — silently undoing every unpause. The fix removes that merge entirely from the save path.
+**Bug that was fixed (save path):** The original `saveVaultData()` merge loop iterated `existing.pausedActivities` and restored any key not present in memory — silently undoing every unpause. The fix removes that merge entirely from the save path.
+
+**Bug that was fixed (load / sync path):** `loadVaultData()` used additive merge for `pausedActivities` (only ever added pauses, never cleared them from vault). `incomingSyncFromFile()` treated the file as authoritative and re-applied stale pause entries after a local unpause. Together, an unpause could look correct until the next Obsidian session or a delayed cloud-sync write. Fix: `unpausedActivities` tombstones (activityId → date) written on unpause; vault load replaces pause state from file while respecting tombstones; incoming sync uses `pause-sync.js` merge helpers so a tombstone blocks a stale file pause.
 
 ### Rendering
 
