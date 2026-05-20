@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="${0:A:h}"
-FILES=(main.js pause-sync.js styles.css manifest.json)
+FILES=(main.js styles.css manifest.json)
 
 TARGETS=(
   "/Users/jd/Documents/obsidian-temp/obsidian vault (root)/.obsidian/plugins/streak-tracker"

@@ -581,6 +581,32 @@
   color: rgb(249, 115, 22);
 }
 
+/* Reset stats button — icon + reset count */
+.streak-btn-reset {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  align-items: center;
+  gap: 0.2em;
+  padding: 0 0.35em;
+  font-size: 0.85em;
+  line-height: 1;
+}
+.streak-reset-icon {
+  font-size: 1.05em;
+}
+.streak-reset-count {
+  font-variant-numeric: tabular-nums;
+  min-width: 0.9em;
+}
+.streak-btn-reset:hover {
+  background: rgba(234, 179, 8, 0.2);
+  color: rgb(234, 179, 8);
+}
+.streak-btn-reset:active {
+  background: rgba(234, 179, 8, 0.35);
+  color: rgb(234, 179, 8);
+}
+
 /* Archive button — muted filing-box tone */
 .streak-btn-archive {
   background: var(--background-modifier-border);

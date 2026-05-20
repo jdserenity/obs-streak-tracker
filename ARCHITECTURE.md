@@ -16,6 +16,8 @@ Streak Tracker is an Obsidian plugin (no build step) consisting of three files d
 
 Everything lives in `StreakTrackerPlugin extends Plugin`. There is no module bundler or transpilation. A companion `StreakTrackerSettingTab` class handles the settings UI.
 
+**Do not `require()` sibling `.js` files from `main.js`.** Obsidian loads only `main.js` as the plugin entry (desktop and mobile). Extra files in the plugin folder are ignored at runtime and the plugin will fail to enable. Shared logic used in tests may live in separate files (e.g. `pause-sync.js`), but production code must be inlined in `main.js` (or you add a bundler). `push_to_prod.sh` deploys only `main.js`, `styles.css`, and `manifest.json`.
+
 ### Lifecycle
 
 ```
@@ -39,11 +41,13 @@ onload()
 - Loaded fresh on every `renderTracker()` call
 
 **`streak-tracker-data.md`** (JSON inside a .md file)
-- Stores: `logs`, `stats`, `activityStartDates`, `pausedActivities`
+- Stores: `logs`, `stats`, `activityStartDates`, `pausedActivities`, `unpausedActivities`, `activityResetCounts`
 - `logs`: `{ "YYYY-MM-DD": { activityId: "success" | "failed" } }`
 - `stats`: cached streak/rate calculations, recalculated from logs on every save
 - `activityStartDates`: `{ activityId: "YYYY-MM-DD" }` — earliest tracked date per activity
 - `pausedActivities`: `{ activityId: "YYYY-MM-DD" }` — date the activity was paused
+- `unpausedActivities`: tombstone map for sync after unpause
+- `activityResetCounts`: `{ activityId: number }` — how many times the user reset stats for that activity
 
 Both files use `.md` extension so they appear in Obsidian's file browser and sync normally.
 
@@ -68,7 +72,7 @@ The plugin is designed to work across devices via cloud sync (ProtonDrive, iClou
 
 **Bug that was fixed (save path):** The original `saveVaultData()` merge loop iterated `existing.pausedActivities` and restored any key not present in memory — silently undoing every unpause. The fix removes that merge entirely from the save path.
 
-**Bug that was fixed (load / sync path):** `loadVaultData()` used additive merge for `pausedActivities` (only ever added pauses, never cleared them from vault). `incomingSyncFromFile()` treated the file as authoritative and re-applied stale pause entries after a local unpause. Together, an unpause could look correct until the next Obsidian session or a delayed cloud-sync write. Fix: `unpausedActivities` tombstones (activityId → date) written on unpause; vault load replaces pause state from file while respecting tombstones; incoming sync uses `pause-sync.js` merge helpers so a tombstone blocks a stale file pause.
+**Bug that was fixed (load / sync path):** `loadVaultData()` used additive merge for `pausedActivities` (only ever added pauses, never cleared them from vault). `incomingSyncFromFile()` treated the file as authoritative and re-applied stale pause entries after a local unpause. Together, an unpause could look correct until the next Obsidian session or a delayed cloud-sync write. Fix: `unpausedActivities` tombstones (activityId → date) written on unpause; vault load replaces pause state from file while respecting tombstones; incoming sync uses inlined merge helpers (see `pause-sync.js` for tests) so a tombstone blocks a stale file pause.
 
 ### Rendering
 
@@ -79,7 +83,7 @@ The plugin is designed to work across devices via cloud sync (ProtonDrive, iClou
 
 Each activity row is rendered by `renderDailyActivity` or `renderWeeklyActivity`. These close over `isPaused` and `currentState` at render time.
 
-**Secondary mode** — holding the configured modifier key (default: Alt/Option) while hovering over the tracker adds `streak-secondary-mode` to the container. CSS uses this to hide primary buttons and reveal the pause/resume button. The pause button uses `mousedown` (not `click`) so its handler fires before the `keyup` event for the modifier key can remove `streak-secondary-mode` and hide the button.
+**Secondary mode** — holding the configured modifier key (default: Alt/Option) while the pointer is over the tracker adds `streak-secondary-mode` to the container. CSS hides primary buttons and shows secondary ones (pause, reset, archive). Modifier state is tracked at plugin scope via `e.altKey` / `e.ctrlKey` / etc. on document `keydown`/`keyup` (not `e.key === "Alt"`, which is unreliable on macOS). Hover is tracked per tracker host element in `_secondaryHoverTrackers` so a re-render (`replaceChildren`) does not drop secondary mode while the modifier is still held. After every `renderTracker()` completes, `_syncSecondaryModeClass()` re-applies the class. Secondary action buttons use `mousedown` (not `click`) so the handler runs before focus changes hide the button.
 
 ### Stats calculation
 

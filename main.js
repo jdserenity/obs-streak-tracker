@@ -1,5 +1,50 @@
 const { Plugin, PluginSettingTab, Setting, Notice } = require("obsidian");
-const { pausedStateFromVault, mergePausedOnIncoming } = require("./pause-sync");
+
+// Inlined helpers (Obsidian loads main.js only; see pause-sync.js / activity-reset.js for tests)
+function pausedStateFromVault(vaultPaused, vaultUnpaused) {
+  const paused = {};
+  for (const [id, date] of Object.entries(vaultPaused || {})) {
+    const unpausedAt = (vaultUnpaused || {})[id];
+    if (unpausedAt && unpausedAt >= date) continue;
+    paused[id] = date;
+  }
+  return paused;
+}
+function mergePausedOnIncoming(memPaused, memUnpaused, filePaused, fileUnpaused) {
+  const paused = { ...memPaused };
+  const unpaused = { ...(fileUnpaused || {}), ...(memUnpaused || {}) };
+  for (const [id, date] of Object.entries(filePaused || {})) {
+    const unpausedAt = unpaused[id];
+    if (unpausedAt && unpausedAt >= date) continue;
+    if (!paused[id] || date < paused[id]) paused[id] = date;
+  }
+  for (const [id, unpausedAt] of Object.entries(unpaused)) {
+    if (paused[id] && unpausedAt >= paused[id]) delete paused[id];
+  }
+  return { pausedActivities: paused, unpausedActivities: unpaused };
+}
+function clearActivityLogs(logs, activityId) {
+  const next = {};
+  for (const date of Object.keys(logs || {})) {
+    if (!logs[date]?.[activityId]) { next[date] = logs[date]; continue; }
+    const day = { ...logs[date] };
+    delete day[activityId];
+    if (Object.keys(day).length) next[date] = day;
+  }
+  return next;
+}
+function incrementResetCount(counts, activityId) {
+  const next = { ...(counts || {}) };
+  next[activityId] = (next[activityId] || 0) + 1;
+  return next;
+}
+function mergeResetCounts(memCounts, fileCounts) {
+  const merged = { ...(fileCounts || {}) };
+  for (const [id, count] of Object.entries(memCounts || {})) {
+    merged[id] = Math.max(merged[id] || 0, count);
+  }
+  return merged;
+}
 
 const DEFAULT_SETTINGS = {
   dayEndTime: "04:00",
@@ -16,7 +61,8 @@ const DEFAULT_DATA = {
   stats: {},
   activityStartDates: {}, // Track when each activity started being tracked
   pausedActivities: {},   // activityId → date string of when it was paused
-  unpausedActivities: {}  // activityId → date string of when it was last unpaused (sync tombstone)
+  unpausedActivities: {}, // activityId → date string of when it was last unpaused (sync tombstone)
+  activityResetCounts: {} // activityId → number of times stats were reset
 };
 
 class StreakTrackerPlugin extends Plugin {
@@ -27,6 +73,9 @@ class StreakTrackerPlugin extends Plugin {
     this._lastConfigWriteHash = null;
     this._reloadTimeout = null;
     this.activityConfigMap = {}; // id → activity object, populated on config load
+    this._secondaryHoverTrackers = new Set();
+    this._secondaryModifierHeld = false;
+    this._bindSecondaryModeListeners();
 
     await this.loadPluginData();
 
@@ -83,6 +132,9 @@ class StreakTrackerPlugin extends Plugin {
     }
     if (!this.data.unpausedActivities) {
       this.data.unpausedActivities = {};
+    }
+    if (!this.data.activityResetCounts) {
+      this.data.activityResetCounts = {};
     }
 
     // Migrate .json vault files to .md so they appear in Obsidian's file browser
@@ -182,6 +234,11 @@ class StreakTrackerPlugin extends Plugin {
         this.data.unpausedActivities
       );
 
+      this.data.activityResetCounts = mergeResetCounts(
+        this.data.activityResetCounts,
+        vaultData.activityResetCounts
+      );
+
       // Stats will be recalculated from merged logs
       this.data.stats = vaultData.stats || {};
       this.vaultDataLoaded = true;
@@ -192,6 +249,57 @@ class StreakTrackerPlugin extends Plugin {
       // Still mark as loaded so saves aren't blocked and in-memory data isn't lost.
       this.vaultDataLoaded = true;
       return false;
+    }
+  }
+
+  _modifierActive(e) {
+    const m = this.data.settings?.secondaryModifier || "Alt";
+    if (m === "Alt") return e.altKey;
+    if (m === "Control") return e.ctrlKey;
+    if (m === "Shift") return e.shiftKey;
+    if (m === "Meta") return e.metaKey;
+    return false;
+  }
+
+  _bindSecondaryModeListeners() {
+    this._onSecondaryKey = (e) => {
+      const held = this._modifierActive(e);
+      if (held === this._secondaryModifierHeld) return;
+      this._secondaryModifierHeld = held;
+      this._syncSecondaryModeClass();
+    };
+    this._onSecondaryBlur = () => {
+      if (!this._secondaryModifierHeld) return;
+      this._secondaryModifierHeld = false;
+      this._syncSecondaryModeClass();
+    };
+    this.registerDomEvent(document, "keydown", this._onSecondaryKey);
+    this.registerDomEvent(document, "keyup", this._onSecondaryKey);
+    this.registerDomEvent(window, "blur", this._onSecondaryBlur);
+  }
+
+  _wireTrackerSecondaryMode(trackerEl, container) {
+    container.addEventListener("mouseenter", () => {
+      this._secondaryHoverTrackers.add(trackerEl);
+      this._syncSecondaryModeClass();
+    });
+    container.addEventListener("mouseleave", () => {
+      this._secondaryHoverTrackers.delete(trackerEl);
+      this._syncSecondaryModeClass();
+    });
+  }
+
+  _syncSecondaryModeClass() {
+    for (const trackerEl of this._trackerElements) {
+      if (!trackerEl.isConnected) {
+        this._trackerElements.delete(trackerEl);
+        this._secondaryHoverTrackers.delete(trackerEl);
+        continue;
+      }
+      const container = trackerEl.querySelector(".streak-tracker-container");
+      if (!container) continue;
+      const on = this._secondaryModifierHeld && this._secondaryHoverTrackers.has(trackerEl);
+      container.classList.toggle("streak-secondary-mode", on);
     }
   }
 
@@ -244,6 +352,9 @@ class StreakTrackerPlugin extends Plugin {
       this.data.pausedActivities = mergedPaused.pausedActivities;
       this.data.unpausedActivities = mergedPaused.unpausedActivities;
 
+      const memResetCounts = { ...this.data.activityResetCounts };
+      this.data.activityResetCounts = mergeResetCounts(memResetCounts, vaultData.activityResetCounts);
+
       this.vaultDataLoaded = true;
       await this.recalculateAllStats();
       await this.refreshAllTrackers();
@@ -277,6 +388,7 @@ class StreakTrackerPlugin extends Plugin {
               this.data.logs[date] = existing.logs[date];
             } else {
               for (const act of Object.keys(existing.logs[date])) {
+                if (this._skipLogMergeFor?.has(act)) continue;
                 if (!this.data.logs[date][act]) {
                   this.data.logs[date][act] = existing.logs[date][act];
                 }
@@ -288,6 +400,7 @@ class StreakTrackerPlugin extends Plugin {
         // Merge activityStartDates: keep the earliest date
         if (existing.activityStartDates) {
           for (const act of Object.keys(existing.activityStartDates)) {
+            if (this._skipLogMergeFor?.has(act)) continue;
             if (!this.data.activityStartDates[act] ||
                 existing.activityStartDates[act] < this.data.activityStartDates[act]) {
               this.data.activityStartDates[act] = existing.activityStartDates[act];
@@ -295,7 +408,7 @@ class StreakTrackerPlugin extends Plugin {
           }
         }
 
-        // pausedActivities: in-memory wins outright — the user just took an
+        // activityResetCounts / pausedActivities: in-memory wins outright — the user just took an
         // explicit pause/unpause action on this device, so don't let a stale
         // on-disk value restore a pause that was just cleared.
       }
@@ -323,11 +436,13 @@ class StreakTrackerPlugin extends Plugin {
       stats: this.data.stats,
       activityStartDates: this.data.activityStartDates,
       pausedActivities: this.data.pausedActivities || {},
-      unpausedActivities: this.data.unpausedActivities || {}
+      unpausedActivities: this.data.unpausedActivities || {},
+      activityResetCounts: this.data.activityResetCounts || {}
     };
     const jsonStr = JSON.stringify(vaultData, null, 2);
     this._lastDataWriteHash = this._hashStr(jsonStr);
     await this.app.vault.adapter.write(dataPath, jsonStr);
+    if (this._skipLogMergeFor) this._skipLogMergeFor.clear();
   }
 
   normalizeLoadedConfig(parsed) {
@@ -352,6 +467,40 @@ class StreakTrackerPlugin extends Plugin {
       console.error("Failed to load streak tracker config:", e);
       return this.normalizeLoadedConfig({ activities: [] });
     }
+  }
+
+  async resetActivityStats(activity) {
+    if (!this.vaultDataLoaded) await this.loadVaultData();
+    this.vaultDataLoaded = true;
+    const id = activity.id;
+    this.data.logs = clearActivityLogs(this.data.logs, id);
+    delete this.data.activityStartDates[id];
+    delete this.data.stats[id];
+    delete this.data.pausedActivities?.[id];
+    delete this.data.unpausedActivities?.[id];
+    this.data.activityResetCounts = incrementResetCount(this.data.activityResetCounts, id);
+    if (!this._skipLogMergeFor) this._skipLogMergeFor = new Set();
+    this._skipLogMergeFor.add(id);
+    this.calculateStats(id);
+    await this.saveVaultData();
+    new Notice(`Stats reset (${this.data.activityResetCounts[id]} total)`);
+    await this.refreshAllTrackers();
+  }
+
+  renderResetStatsButton(buttonsEl, activity) {
+    const resetCount = this.data.activityResetCounts?.[activity.id] || 0;
+    const resetBtn = buttonsEl.createEl("button", {
+      cls: "streak-btn streak-btn-reset streak-btn-secondary",
+      attr: { title: "Reset stats (clears all log history for this activity)" }
+    });
+    resetBtn.createEl("span", { text: "↻", cls: "streak-reset-icon" });
+    resetBtn.createEl("span", { text: String(resetCount), cls: "streak-reset-count" });
+    resetBtn.addEventListener("mousedown", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await this.resetActivityStats(activity);
+    });
+    return resetBtn;
   }
 
   async archiveActivity(activity) {
@@ -787,34 +936,7 @@ class StreakTrackerPlugin extends Plugin {
     const container = document.createElement("div");
     container.className = "streak-tracker-container";
 
-    // Secondary mode: hold modifier key while mouse is inside to reveal secondary actions
-    const modifier = this.data.settings.secondaryModifier || "Alt";
-    const onKeyDown = (e) => {
-      if (!container.isConnected) {
-        document.removeEventListener("keydown", onKeyDown);
-        document.removeEventListener("keyup", onKeyUp);
-        return;
-      }
-      if (e.key === modifier) container.classList.add("streak-secondary-mode");
-    };
-    const onKeyUp = (e) => {
-      if (e.key === modifier) {
-        container.classList.remove("streak-secondary-mode");
-        if (!container.isConnected) {
-          document.removeEventListener("keydown", onKeyDown);
-          document.removeEventListener("keyup", onKeyUp);
-        }
-      }
-    };
-    container.addEventListener("mouseenter", () => {
-      document.addEventListener("keydown", onKeyDown);
-      document.addEventListener("keyup", onKeyUp);
-    });
-    container.addEventListener("mouseleave", () => {
-      container.classList.remove("streak-secondary-mode");
-      document.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("keyup", onKeyUp);
-    });
+    this._wireTrackerSecondaryMode(el, container);
 
     if (config.activities.length === 0) {
       container.createEl("p", {
@@ -863,6 +985,7 @@ class StreakTrackerPlugin extends Plugin {
 
     // Atomic update
     el.replaceChildren(container);
+    this._syncSecondaryModeClass();
 
     // Release lock; if a render was requested while we were in progress, do it now.
     this._renderingEls.delete(el);
@@ -944,6 +1067,8 @@ class StreakTrackerPlugin extends Plugin {
       await this.saveVaultData();
       await this.refreshAllTrackers();
     });
+
+    this.renderResetStatsButton(buttonsEl, activity);
 
     const archiveBtnEl = buttonsEl.createEl("button", {
       text: "🗃",
@@ -1087,6 +1212,8 @@ class StreakTrackerPlugin extends Plugin {
       await this.saveVaultData();
       await this.refreshAllTrackers();
     });
+
+    this.renderResetStatsButton(buttonsEl, activity);
 
     const archiveBtnEl = buttonsEl.createEl("button", {
       text: "🗃",
@@ -1727,6 +1854,7 @@ class StreakTrackerSettingTab extends PluginSettingTab {
               vaultData.pausedActivities,
               this.plugin.data.unpausedActivities
             );
+            this.plugin.data.activityResetCounts = vaultData.activityResetCounts || {};
             this.plugin.vaultDataLoaded = true;
             await this.plugin.recalculateAllStats();
             await this.plugin.refreshAllTrackers();
