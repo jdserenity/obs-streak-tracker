@@ -1,6 +1,6 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { isPerfectHeatmapCell } = require("../heatmap-helpers");
+const { isPerfectHeatmapCell } = require("../src/domain/heatmap-helpers");
 
 describe("isPerfectHeatmapCell", () => {
   it("is true when all tracked items completed", () => {

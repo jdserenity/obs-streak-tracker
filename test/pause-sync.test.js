@@ -1,6 +1,6 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { pausedStateFromVault, mergePausedOnIncoming } = require("../pause-sync");
+const { pausedStateFromVault, mergePausedOnIncoming } = require("../src/domain/pause-sync");
 
 describe("pausedStateFromVault", () => {
   it("loads pauses from vault", () => {

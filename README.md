@@ -2,6 +2,8 @@
 
 An Obsidian plugin for tracking daily activities with streaks, stats, and a contribution heatmap.
 
+**Development:** `npm install` → `npm run build` (writes `dist/main.js`) → `npm test`. Deploy copies `dist/main.js` to the vault as `main.js`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Features
 
 - Track multiple daily activities

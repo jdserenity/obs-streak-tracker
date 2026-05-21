@@ -1,6 +1,6 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { clearActivityLogs, incrementResetCount, mergeResetCounts } = require("../activity-reset");
+const { clearActivityLogs, incrementResetCount, mergeResetCounts } = require("../src/domain/activity-reset");
 
 describe("clearActivityLogs", () => {
   it("removes all log entries for the activity", () => {

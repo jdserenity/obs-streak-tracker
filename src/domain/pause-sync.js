@@ -1,5 +1,3 @@
-// Pure pause/unpause merge helpers (tested via node:test).
-
 function pausedStateFromVault(vaultPaused, vaultUnpaused) {
   const paused = {};
   for (const [id, date] of Object.entries(vaultPaused || {})) {

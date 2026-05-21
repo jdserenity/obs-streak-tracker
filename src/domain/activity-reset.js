@@ -1,15 +1,13 @@
-// Pure helpers for activity stat reset (tested via node:test).
+const { getLogState } = require("./logs");
 
 function clearActivityLogs(logs, activityId) {
   const next = {};
   for (const date of Object.keys(logs || {})) {
-    if (!logs[date]?.[activityId]) {
-      next[date] = logs[date];
-      continue;
-    }
-    const day = { ...logs[date] };
-    delete day[activityId];
-    if (Object.keys(day).length) next[date] = day;
+    const day = logs[date];
+    if (!day?.[activityId]) { next[date] = day; continue; }
+    const copy = { ...day };
+    delete copy[activityId];
+    if (Object.keys(copy).length) next[date] = copy;
   }
   return next;
 }
@@ -28,4 +26,9 @@ function mergeResetCounts(memCounts, fileCounts) {
   return merged;
 }
 
-module.exports = { clearActivityLogs, incrementResetCount, mergeResetCounts };
+function dayHasActivityLog(day, activityId) {
+  if (!day?.[activityId]) return false;
+  return getLogState(day[activityId]) != null;
+}
+
+module.exports = { clearActivityLogs, incrementResetCount, mergeResetCounts, dayHasActivityLog };
