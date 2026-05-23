@@ -8,6 +8,9 @@ const { StreakTrackerSettingTab } = require("./settings");
 const { getCurrentDay: domainGetCurrentDay, formatDate, parseDate, daysBetween, getISOWeekStart, getWeekDays } = require("./domain/dates");
 const { calculateStats: domainCalculateStats, calculateWeeklyStats: domainCalculateWeeklyStats } = require("./domain/stats");
 const { getLogState } = require("./domain/logs");
+const { isDayComplete } = require("./domain/heatmap-helpers");
+const { buildActivityCatalog } = require("./domain/activity-catalog");
+const { backfillArchivedAt } = require("./domain/archive-backfill");
 
 class StreakTrackerPlugin extends Plugin {
   get data() { return this.store.state; }
@@ -37,8 +40,9 @@ class StreakTrackerPlugin extends Plugin {
     // Register settings tab
     this.addSettingTab(new StreakTrackerSettingTab(this.app, this));
 
-    // Recalculate all stats on load to catch up on missed days
-    await this.recalculateAllStats();
+    try { await this.recalculateAllStats(); } catch (e) {
+      console.error("streak-tracker: recalculateAllStats on load failed:", e);
+    }
 
     // Check for day change periodically
     this.lastCheckedDay = this.getCurrentDay();
@@ -54,12 +58,24 @@ class StreakTrackerPlugin extends Plugin {
     // Retry loading vault data after layout is ready, in case the file wasn't
     // accessible during onload (e.g. ProtonDrive still syncing at startup)
     this.app.workspace.onLayoutReady(async () => {
-      if (!this.store.vaultDataLoaded) {
-        await this.loadVaultData();
+      try {
+        if (!this.store.vaultDataLoaded) await this.loadVaultData();
         await this.recalculateAllStats();
+        await this.maybeBackfillArchivedAt();
         await this.refreshAllTrackers();
+      } catch (e) {
+        console.error("streak-tracker: onLayoutReady failed:", e);
       }
     });
+  }
+
+  async maybeBackfillArchivedAt() {
+    try {
+      const config = await this.loadActivityConfig();
+      if (backfillArchivedAt(config, this.data)) await this.saveActivityConfig(config);
+    } catch (e) {
+      console.error("streak-tracker: archivedAt backfill failed:", e);
+    }
   }
 
   async loadPluginData() {
@@ -224,6 +240,7 @@ class StreakTrackerPlugin extends Plugin {
     const idx = config.activities.findIndex((a) => a.id === activity.id);
     if (idx === -1) return;
     const [removed] = config.activities.splice(idx, 1);
+    removed.archivedAt = this.getCurrentDay();
     config.archivedActivities.push(removed);
     if (this.data.pausedActivities?.[activity.id]) {
       delete this.data.pausedActivities[activity.id];
@@ -280,9 +297,26 @@ class StreakTrackerPlugin extends Plugin {
   async saveLog(activityId, state, dayStr = null) {
     if (!this.store.vaultDataLoaded) await this.loadVaultData();
     this.store.vaultDataLoaded = true;
+    const targetDay = dayStr || this.getCurrentDay();
+    const catalog = await this._activityCatalogForCompletion();
+    const wasComplete = isDayComplete(this.data, catalog, targetDay);
     this.store.setLog(activityId, state, dayStr);
     domainCalculateStats(this.data, activityId, this.store.activityConfigMap, this.data.settings.dayEndTime);
+    const nowComplete = isDayComplete(this.data, catalog, targetDay);
+    if (!wasComplete && nowComplete && state === "success") {
+      try { require("./ui/confetti").fireDayCompleteConfetti(); } catch (e) {
+        console.error("streak-tracker: confetti failed:", e);
+      }
+    }
     await this.savePluginData();
+  }
+
+  async _activityCatalogForCompletion() {
+    const config = await this.loadActivityConfig();
+    for (const a of [...config.activities, ...(config.archivedActivities || [])]) {
+      this.store.activityConfigMap[a.id] = a;
+    }
+    return buildActivityCatalog(config, this.data);
   }
 
 

@@ -97,6 +97,8 @@ class StreakStore {
   }
 
   setLog(activityId, state, dayStr) {
+    delete this.state._inferredStartDates;
+    delete this.state._inferredLastLogDates;
     const targetDay = dayStr || this.today();
     if (!this.state.logs[targetDay]) this.state.logs[targetDay] = {};
     if (!this.state.activityStartDates[activityId]) {

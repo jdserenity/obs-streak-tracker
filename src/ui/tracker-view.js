@@ -1,4 +1,5 @@
-const { isPerfectHeatmapCell } = require("../domain/heatmap-helpers");
+const { isPerfectHeatmapCell, getDayCompletionCounts } = require("../domain/heatmap-helpers");
+const { buildActivityCatalog, parseScheduledDays } = require("../domain/activity-catalog");
 const { getLogState } = require("../domain/logs");
 
 class TrackerView {
@@ -9,6 +10,16 @@ class TrackerView {
   }
 
   async renderTracker(el) {
+    try {
+      await this._renderTrackerImpl(el);
+    } catch (e) {
+      console.error("streak-tracker: renderTracker failed:", e);
+      el.replaceChildren();
+      el.createEl("p", { text: `Streak tracker failed to render: ${e.message}`, cls: "streak-tracker-empty" });
+    }
+  }
+
+  async _renderTrackerImpl(el) {
     this.plugin._trackerElements.add(el);
 
     // Prevent concurrent renders for the same element. If a render is already
@@ -50,14 +61,15 @@ class TrackerView {
 
       const dailyActivities = config.activities.filter(a => a.frequency !== "weekly");
       const weeklyActivities = config.activities.filter(a => a.frequency === "weekly");
+      const activityCatalog = buildActivityCatalog(config, this.plugin.data);
 
       // Recalculate weekly stats now that activityConfigMap is populated
       for (const activity of weeklyActivities) {
         this.plugin.calculateWeeklyStats(activity.id, activity.weeklyTarget || 1);
       }
 
-      // Daily heatmap — all activities including paused (historical logs are preserved)
-      this.renderHeatmap(container, dailyActivities, currentYear);
+      // Daily heatmap — active + archived + log-inferred activities (historical logs preserved)
+      this.renderHeatmap(container, activityCatalog, currentYear);
 
       // Weekly heatmap (red, single row)
       if (weeklyActivities.length > 0) {
@@ -89,7 +101,15 @@ class TrackerView {
     this._renderingEls.delete(el);
     if (this._pendingRerender.has(el)) {
       this._pendingRerender.delete(el);
-      await this.plugin.renderTracker(el);
+      await this.renderTracker(el);
+    }
+  }
+
+  async refreshAllTrackers() {
+    const elements = this.plugin._trackerElements;
+    if (!elements) return;
+    for (const el of elements) {
+      if (el && el.isConnected) await this.renderTracker(el);
     }
   }
 
@@ -120,9 +140,7 @@ class TrackerView {
     successBtn.addEventListener("click", async () => {
       const newState = currentState === "success" ? "none" : "success";
       await this.plugin.saveLog(activity.id, newState);
-
-      const trackerEl = container.closest(".streak-tracker-container");
-      if (trackerEl) await this.plugin.renderTracker(trackerEl.parentElement);
+      await this.plugin.refreshAllTrackers();
     });
 
     if (activity.canFail) {
@@ -135,9 +153,7 @@ class TrackerView {
       failBtn.addEventListener("click", async () => {
         const newState = currentState === "failed" ? "none" : "failed";
         await this.plugin.saveLog(activity.id, newState);
-
-        const trackerEl = container.closest(".streak-tracker-container");
-        if (trackerEl) await this.plugin.renderTracker(trackerEl.parentElement);
+        await this.plugin.refreshAllTrackers();
       });
     }
 
@@ -186,15 +202,6 @@ class TrackerView {
     }
   }
 
-  parseScheduledDays(scheduledDays) {
-    const map = {
-      sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tuesday: 2,
-      wed: 3, wednesday: 3, thu: 4, thursday: 4, fri: 5, friday: 5,
-      sat: 6, saturday: 6
-    };
-    return scheduledDays.map(d => map[d.toLowerCase()]).filter(d => d !== undefined);
-  }
-
   renderWeeklyActivity(container, activity) {
     const isPaused = !!(this.plugin.data.pausedActivities?.[activity.id]);
     const weeklyTarget = activity.weeklyTarget || 1;
@@ -209,7 +216,7 @@ class TrackerView {
     let sessionCount = 0;
 
     if (activity.scheduledDays && activity.scheduledDays.length > 0) {
-      const scheduledIndices = this.parseScheduledDays(activity.scheduledDays);
+      const scheduledIndices = parseScheduledDays(activity.scheduledDays);
       const DAY_ABBR = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
       for (const dayDate of weekDays) {
@@ -272,14 +279,12 @@ class TrackerView {
           const idx = i;
           btn.addEventListener("click", async () => {
             await this.plugin.saveLog(activity.id, "none", sessionsThisWeek[idx]);
-            const trackerEl = container.closest(".streak-tracker-container");
-            if (trackerEl) await this.plugin.renderTracker(trackerEl.parentElement);
+            await this.plugin.refreshAllTrackers();
           });
         } else if (isNext) {
           btn.addEventListener("click", async () => {
             await this.plugin.saveLog(activity.id, "success", today);
-            const trackerEl = container.closest(".streak-tracker-container");
-            if (trackerEl) await this.plugin.renderTracker(trackerEl.parentElement);
+            await this.plugin.refreshAllTrackers();
           });
         }
         // locked buttons get no click handler
@@ -602,7 +607,6 @@ class TrackerView {
     const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
     const totalWeeks = Math.ceil((totalDays + startDay) / 7);
 
-    const dailyActivities = activities.filter(a => a.frequency !== "weekly");
     let currentDate = new Date(startDate);
 
     for (let week = 0; week < totalWeeks; week++) {
@@ -624,20 +628,11 @@ class TrackerView {
         }
 
         const dateStr = this.plugin.formatDate(currentDate);
-        const log = this.plugin.data.logs[dateStr] || {};
-
-        // Calculate completion percentage using only activities that existed on this date
-        let successCount = 0;
-        let historicalCount = 0;
-
-        for (const activity of dailyActivities) {
-          const startedOn = this.plugin.data.activityStartDates[activity.id];
-          if (startedOn && startedOn > dateStr) continue; // activity didn't exist yet
-          historicalCount++;
-          if (getLogState(log[activity.id]) === "success") {
-            successCount++;
-          }
-        }
+        const { successCount, historicalCount } = getDayCompletionCounts(
+          this.plugin.data,
+          activities,
+          dateStr
+        );
 
         // Set intensity level
         let level = 0;

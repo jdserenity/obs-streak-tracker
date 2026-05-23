@@ -18,7 +18,7 @@ Streak Tracker is an Obsidian plugin built with esbuild from `src/` into deploya
 |-------|----------|------|
 | Entry | `src/main.js` | Exports `StreakTrackerPlugin` |
 | Plugin shell | `src/plugin.js` | Obsidian lifecycle, secondary-mode keys, delegates to store/vault/view |
-| UI | `src/ui/tracker-view.js` | Code block rendering, heatmaps, activity rows |
+| UI | `src/ui/tracker-view.js`, `src/ui/confetti.js` | Code block rendering, heatmaps, activity rows; `canvas-confetti` when all tasks due that day are success (daily + scheduled weekly e.g. school Mon–Fri) |
 | Settings | `src/settings.js` | Settings tab |
 | Store | `src/store/streak-store.js` | In-memory state, `setLog`, `resetActivity`, stats recompute |
 | Domain | `src/domain/` | Pure merge, stats, dates, log cell normalization |
@@ -30,7 +30,7 @@ Tests: `npm test` → `node --test test/*.test.js`.
 
 ## Data storage
 
-**`streak-tracker-config.md`** — activity definitions (`activities`, `archivedActivities`).
+**`streak-tracker-config.md`** — activity definitions (`activities`, `archivedActivities`). Archiving moves an activity to `archivedActivities` with `archivedAt` (YYYY-MM-DD); heatmap and perfect-day logic still count it for earlier dates. Deleted config entries break history; use archive instead.
 
 **`streak-tracker-data.md`** — persisted state (no `stats` field):
 
