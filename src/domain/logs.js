@@ -3,7 +3,9 @@ const LEGACY_EPOCH = "1970-01-01T00:00:00.000Z";
 function getLogState(cell) {
   if (cell == null) return null;
   if (typeof cell === "string") return cell;
-  if (typeof cell === "object" && cell.state != null) return cell.state;
+  if (typeof cell === "object" && cell.state != null) {
+    return cell.state === "none" ? null : cell.state;
+  }
   return null;
 }
 
@@ -18,13 +20,20 @@ function makeLogCell(state, updatedAt) {
   return { state, updatedAt: updatedAt || new Date().toISOString() };
 }
 
+function makeDeletionCell(updatedAt) {
+  return { state: "none", updatedAt: updatedAt || new Date().toISOString() };
+}
+
 function normalizeLogCell(cell, defaultUpdatedAt = LEGACY_EPOCH) {
   if (cell == null) return null;
   if (typeof cell === "string") {
     return makeLogCell(cell, defaultUpdatedAt);
   }
   const state = cell.state;
-  if (state == null || state === "none") return null;
+  if (state == null) return null;
+  if (state === "none") {
+    return { state: "none", updatedAt: cell.updatedAt || defaultUpdatedAt };
+  }
   return { state, updatedAt: cell.updatedAt || defaultUpdatedAt };
 }
 
@@ -56,6 +65,7 @@ module.exports = {
   getLogState,
   cellUpdatedAt,
   makeLogCell,
+  makeDeletionCell,
   normalizeLogCell,
   normalizeLogs,
   serializeLogsForVault,

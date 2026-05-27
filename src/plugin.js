@@ -34,7 +34,12 @@ class StreakTrackerPlugin extends Plugin {
     await this.loadPluginData();
 
     // Register code block processor
-    this.registerMarkdownCodeBlockProcessor("streak-tracker", (source, el, ctx) => {
+    this.registerMarkdownCodeBlockProcessor("streak-tracker", async (source, el, ctx) => {
+      try {
+        await this.loadVaultData();
+      } catch (e) {
+        console.error("streak-tracker: processor freshness load failed:", e);
+      }
       this.view.renderTracker(el);
     });
 
@@ -62,11 +67,28 @@ class StreakTrackerPlugin extends Plugin {
       this.app.vault.on("modify", (file) => this.onFileModified(file))
     );
 
-    // Retry loading vault data after layout is ready, in case the file wasn't
-    // accessible during onload (e.g. ProtonDrive still syncing at startup)
+    // Opportunistic freshness for mobile (iOS often misses "modify"). Keep active-leaf
+    // (user switching to the note) + onLayoutReady (app start) + the original modify path.
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", async () => {
+        if (this._trackerElements && this._trackerElements.size > 0) {
+          try {
+            await this.loadVaultData();
+            await this.recalculateAllStats();
+            await this.refreshAllTrackers();
+          } catch (e) {
+            console.error("streak-tracker: active-leaf freshness check failed:", e);
+          }
+        }
+      })
+    );
+
+    // Retry loading vault data after layout is ready (covers Proton at startup,
+    // and missed external sync while app was closed/backgrounded on mobile).
+    // Always attempt — the loaded flag alone is not a reliable "we have current data" signal.
     this.app.workspace.onLayoutReady(async () => {
       try {
-        if (!this.store.vaultDataLoaded) await this.loadVaultData();
+        await this.loadVaultData();
         await this.recalculateAllStats();
         await this.maybeBackfillArchivedAt();
         await this.refreshAllTrackers();
