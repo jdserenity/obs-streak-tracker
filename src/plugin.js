@@ -11,6 +11,7 @@ const { getLogState } = require("./domain/logs");
 const { isDayComplete } = require("./domain/heatmap-helpers");
 const { buildActivityCatalog } = require("./domain/activity-catalog");
 const { backfillArchivedAt } = require("./domain/archive-backfill");
+const { refreshUIFromVault } = require("./infra/refresh-ui");
 
 class StreakTrackerPlugin extends Plugin {
   get data() { return this.store.state; }
@@ -39,6 +40,12 @@ class StreakTrackerPlugin extends Plugin {
 
     // Register settings tab
     this.addSettingTab(new StreakTrackerSettingTab(this.app, this));
+
+    this.addCommand({
+      id: "streak-tracker-refresh-ui",
+      name: "Refresh UI",
+      callback: () => this.refreshUIFromVault()
+    });
 
     try { await this.recalculateAllStats(); } catch (e) {
       console.error("streak-tracker: recalculateAllStats on load failed:", e);
@@ -348,6 +355,15 @@ class StreakTrackerPlugin extends Plugin {
 
   async refreshAllTrackers() {
     return this.view.refreshAllTrackers();
+  }
+
+  async refreshUIFromVault() {
+    await refreshUIFromVault({
+      loadVaultData: () => this.loadVaultData(),
+      recalculateAllStats: () => this.recalculateAllStats(),
+      refreshAllTrackers: () => this.refreshAllTrackers()
+    });
+    new Notice("Streak tracker UI refreshed from vault data.");
   }
 
 

@@ -1,6 +1,14 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { isPerfectHeatmapCell, isDayComplete, getDayCompletionCounts } = require("../src/domain/heatmap-helpers");
+const { isDateInWeek } = require("../src/domain/dates");
+
+describe("isDateInWeek", () => {
+  it("is true when date falls in the ISO week", () => {
+    assert.equal(isDateInWeek("2026-05-18", "2026-05-20"), true);
+    assert.equal(isDateInWeek("2026-05-18", "2026-05-17"), false);
+  });
+});
 
 describe("isPerfectHeatmapCell", () => {
   it("is true when all tracked items completed", () => {

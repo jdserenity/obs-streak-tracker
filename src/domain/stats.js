@@ -43,6 +43,7 @@ function calculateStats(data, activityId, activityConfigMap, dayEndTime) {
   if (totalDays < 0) totalDays = 0;
 
   for (const date of Object.keys(logs)) {
+    if (date < startDate || date > today) continue;
     if (getLogState(logs[date][activityId]) === "success") totalSuccesses++;
   }
 
@@ -114,6 +115,7 @@ function calculateWeeklyStats(data, activityId, weeklyTarget, dayEndTime) {
 
   let totalSuccesses = 0;
   for (const date of Object.keys(logs)) {
+    if (date < startDate || date > today) continue;
     if (getLogState(logs[date][activityId]) === "success") totalSuccesses++;
   }
 

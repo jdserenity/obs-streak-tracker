@@ -91,5 +91,5 @@ Paused activities: stats frozen at pause date (`pausedSince` substituted for tod
 1. Phone: check an activity today → desktop tracker shows success without Refresh.
 2. Desktop: unpause an activity → phone does not show stale paused after sync.
 3. Both devices: edit different past days offline → both logs present after sync (newer `updatedAt` per cell).
-4. Settings → Refresh UI reloads vault without overwriting with stale memory.
+4. Settings → Refresh UI or command palette **Streak Tracker: Refresh UI** reloads vault without overwriting with stale memory.
 5. Deselect today on one device → today not restored from older file on save.

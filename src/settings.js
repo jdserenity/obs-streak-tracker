@@ -66,10 +66,7 @@ class StreakTrackerSettingTab extends PluginSettingTab {
       .addButton(button => button
         .setButtonText("Refresh")
         .onClick(async () => {
-          await this.plugin.vault.loadVaultData();
-          await this.plugin.recalculateAllStats();
-          await this.plugin.refreshAllTrackers();
-          new Notice("Streak tracker UI refreshed from vault data.");
+          await this.plugin.refreshUIFromVault();
         }));
 
     new Setting(containerEl)

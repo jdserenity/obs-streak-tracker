@@ -47,11 +47,17 @@ function getWeekDays(weekStartStr) {
   return days;
 }
 
+function isDateInWeek(weekStartStr, dateStr) {
+  const days = getWeekDays(weekStartStr);
+  return dateStr >= days[0] && dateStr <= days[6];
+}
+
 module.exports = {
   formatDate,
   parseDate,
   daysBetween,
   getCurrentDay,
   getISOWeekStart,
-  getWeekDays
+  getWeekDays,
+  isDateInWeek
 };

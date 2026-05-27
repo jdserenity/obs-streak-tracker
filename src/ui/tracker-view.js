@@ -1,6 +1,9 @@
 const { isPerfectHeatmapCell, getDayCompletionCounts } = require("../domain/heatmap-helpers");
 const { buildActivityCatalog, parseScheduledDays } = require("../domain/activity-catalog");
 const { getLogState } = require("../domain/logs");
+const { isDateInWeek } = require("../domain/dates");
+const { streakDisplayTier, currentStreakFireEmojiClass } = require("../domain/streak-display");
+const { heatmapMonthSpans, weekColumnMonthFromDates } = require("../domain/heatmap-layout");
 
 class TrackerView {
   constructor(plugin) {
@@ -336,6 +339,18 @@ class TrackerView {
     }
   }
 
+  _toggleActivityDescription(nameEl, descriptionEl) {
+    const opening = descriptionEl.classList.contains("collapsed");
+    if (opening) {
+      const truncated = nameEl.scrollWidth > nameEl.clientWidth + 1;
+      descriptionEl.classList.remove("collapsed");
+      nameEl.classList.toggle("streak-activity-name-wrap", truncated);
+    } else {
+      descriptionEl.classList.add("collapsed");
+      nameEl.classList.remove("streak-activity-name-wrap");
+    }
+  }
+
   // Shared helper: renders the activity name (with links/description) and stats area.
   // mode is "daily" or "weekly". weekSessionCount and weeklyTarget only used in weekly mode.
   renderActivityNameAndStats(activityEl, headerRow, activity, mode, weekSessionCount = 0, weeklyTarget = 1) {
@@ -384,7 +399,7 @@ class TrackerView {
         if (activity.description) {
           textSpan.addEventListener("click", (e) => {
             e.stopPropagation();
-            descriptionEl.classList.toggle("collapsed");
+            this._toggleActivityDescription(nameEl, descriptionEl);
           });
         }
       }
@@ -393,7 +408,7 @@ class TrackerView {
     if (activity.description && !hasLinks) {
       nameEl.classList.add("clickable");
       nameEl.addEventListener("click", () => {
-        descriptionEl.classList.toggle("collapsed");
+        this._toggleActivityDescription(nameEl, descriptionEl);
       });
     } else if (activity.description && hasLinks) {
       nameEl.classList.add("clickable-parts");
@@ -413,16 +428,8 @@ class TrackerView {
       const totalWeeks = stats.totalDays ?? 0;
       const weekRate = totalWeeks > 0 ? ((weeklySuccesses / totalWeeks) * 100).toFixed(0) : "0";
 
-      statsEl.createEl("span", {
-        text: `🔥 ${stats.currentStreak}`,
-        cls: "streak-stat streak-current",
-        attr: { title: "Current streak (weeks)" }
-      });
-      statsEl.createEl("span", {
-        text: `🔗 ${stats.longestStreak}`,
-        cls: "streak-stat streak-longest",
-        attr: { title: "Longest streak (weeks)" }
-      });
+      this._appendStreakStat(statsEl, "🔥", stats.currentStreak, "streak-current", "Current streak (weeks)");
+      this._appendStreakStat(statsEl, "🔗", stats.longestStreak, "streak-longest", "Longest streak (weeks)");
       statsEl.createEl("span", {
         text: `✅ ${weeklySuccesses}/${totalWeeks} : ${weekRate}%`,
         cls: "streak-stat streak-total",
@@ -448,16 +455,8 @@ class TrackerView {
         rateColorCls = "streak-rate-blue";
       }
 
-      statsEl.createEl("span", {
-        text: `🔥 ${stats.currentStreak}`,
-        cls: "streak-stat streak-current",
-        attr: { title: "Current streak" }
-      });
-      statsEl.createEl("span", {
-        text: `🔗 ${stats.longestStreak}`,
-        cls: "streak-stat streak-longest",
-        attr: { title: "Longest streak" }
-      });
+      this._appendStreakStat(statsEl, "🔥", stats.currentStreak, "streak-current", "Current streak");
+      this._appendStreakStat(statsEl, "🔗", stats.longestStreak, "streak-longest", "Longest streak");
       const totalEl = statsEl.createEl("span", {
         cls: "streak-stat streak-total",
         attr: { title: "Total successes / Total days tracked" }
@@ -527,9 +526,66 @@ class TrackerView {
     });
   }
 
+  _appendStreakStat(parent, emoji, value, cls, title) {
+    const kind = cls === "streak-current" ? "current" : "longest";
+    const tier = streakDisplayTier(value, kind);
+    const tierCls = tier === "none" ? "" : ` streak-streak-tier-${tier}`;
+    const el = parent.createEl("span", {
+      cls: `streak-stat streak-streak-display ${cls}${tierCls}`,
+      attr: { title }
+    });
+    if (kind === "current") {
+      const fireCls = currentStreakFireEmojiClass(value);
+      if (fireCls) el.createEl("span", { text: "🔥", cls: fireCls });
+    } else {
+      el.createEl("span", { text: emoji, cls: "streak-streak-emoji" });
+    }
+    el.createEl("span", { text: String(value), cls: "streak-streak-num" });
+    return el;
+  }
+
+  _paintHeatmapMonthLabels(monthLabels, trackEl, weekEls, weekMonths, { fullWidth = false } = {}) {
+    monthLabels.empty();
+    if (!weekEls.length) return;
+    const total = weekEls.length;
+    for (const { name, weekCount } of heatmapMonthSpans(weekMonths)) {
+      const span = monthLabels.createEl("span", { text: name, cls: "streak-heatmap-month" });
+      const pct = (weekCount / total) * 100;
+      span.style.flex = `0 0 ${pct}%`;
+      span.style.width = `${pct}%`;
+    }
+    monthLabels.style.width = fullWidth ? "100%" : `${trackEl.offsetWidth}px`;
+  }
+
+  _layoutHeatmapMonthLabels(monthLabels, grid) {
+    const weeks = [...grid.querySelectorAll(".streak-heatmap-week")];
+    const weekMonths = weeks.map((week) => {
+      const dates = [...week.querySelectorAll(".streak-heatmap-cell:not(.streak-heatmap-empty)")]
+        .map((cell) => cell.getAttribute("data-date"));
+      return weekColumnMonthFromDates(dates);
+    });
+    this._paintHeatmapMonthLabels(monthLabels, grid, weeks, weekMonths);
+  }
+
+  _layoutWeeklyHeatmapMonthLabels(monthLabels, row) {
+    const cells = [...row.querySelectorAll(".streak-weekly-cell")];
+    const weekMonths = cells.map((cell) => weekColumnMonthFromDates([cell.getAttribute("data-week-start")]));
+    this._paintHeatmapMonthLabels(monthLabels, row, cells, weekMonths, { fullWidth: true });
+  }
+
+  _centerHeatmapScroll(scrollEl, selector, stickyOffset = 28) {
+    requestAnimationFrame(() => {
+      const target = scrollEl.querySelector(selector);
+      if (!target) return;
+      const viewW = scrollEl.clientWidth - stickyOffset;
+      scrollEl.scrollLeft = Math.max(0, target.offsetLeft - stickyOffset - (viewW - target.offsetWidth) / 2);
+    });
+  }
+
   renderHeatmap(container, activities, year, replaceEl = null) {
     const heatmapContainer = document.createElement("div");
     heatmapContainer.className = "streak-heatmap-container";
+    const today = this.plugin.getCurrentDay();
 
     // Year navigation - only show if more than one year of data
     const yearsWithData = this.plugin.getYearsWithData();
@@ -577,16 +633,11 @@ class TrackerView {
       }
     }
 
-    // Month labels
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const monthLabels = heatmapContainer.createDiv({ cls: "streak-heatmap-months" });
-
-    for (const month of months) {
-      monthLabels.createEl("span", { text: month, cls: "streak-heatmap-month" });
-    }
+    const scrollEl = heatmapContainer.createDiv({ cls: "streak-heatmap-scroll" });
+    const monthLabels = scrollEl.createDiv({ cls: "streak-heatmap-months" });
 
     // Create the grid wrapper
-    const heatmapWrapper = heatmapContainer.createDiv({ cls: "streak-heatmap-wrapper" });
+    const heatmapWrapper = scrollEl.createDiv({ cls: "streak-heatmap-wrapper" });
 
     // Day labels
     const dayLabels = heatmapWrapper.createDiv({ cls: "streak-heatmap-days" });
@@ -611,6 +662,7 @@ class TrackerView {
 
     for (let week = 0; week < totalWeeks; week++) {
       const weekCol = grid.createDiv({ cls: "streak-heatmap-week" });
+      let isCurrentWeek = false;
 
       for (let day = 0; day < 7; day++) {
         const cell = weekCol.createDiv({ cls: "streak-heatmap-cell" });
@@ -628,6 +680,7 @@ class TrackerView {
         }
 
         const dateStr = this.plugin.formatDate(currentDate);
+        if (year === new Date().getFullYear() && dateStr === today) isCurrentWeek = true;
         const { successCount, historicalCount } = getDayCompletionCounts(
           this.plugin.data,
           activities,
@@ -667,7 +720,15 @@ class TrackerView {
 
         currentDate.setDate(currentDate.getDate() + 1);
       }
+      if (isCurrentWeek) weekCol.classList.add("streak-heatmap-scroll-anchor");
     }
+
+    requestAnimationFrame(() => {
+      this._layoutHeatmapMonthLabels(monthLabels, grid);
+      if (year === new Date().getFullYear() && window.matchMedia("(max-width: 500px)").matches) {
+        this._centerHeatmapScroll(scrollEl, ".streak-heatmap-scroll-anchor");
+      }
+    });
 
     if (replaceEl) {
       replaceEl.replaceWith(heatmapContainer);
@@ -720,12 +781,9 @@ class TrackerView {
       });
     }
 
-    // Month labels
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const today = this.plugin.getCurrentDay();
+
     const monthLabels = heatmapContainer.createDiv({ cls: "streak-heatmap-months streak-weekly-months" });
-    for (const month of months) {
-      monthLabels.createEl("span", { text: month, cls: "streak-heatmap-month" });
-    }
 
     // Single row of week cells
     const row = heatmapContainer.createDiv({ cls: "streak-weekly-heatmap-row" });
@@ -738,6 +796,7 @@ class TrackerView {
       const weekDays = this.plugin.getWeekDays(wStart);
       const wEnd = weekDays[6];
       const cell = row.createDiv({ cls: "streak-weekly-cell" });
+      cell.setAttribute("data-week-start", wStart);
 
       let completedCount = 0;
       let historicalCount = 0;
@@ -765,6 +824,9 @@ class TrackerView {
       }
 
       cell.classList.add(`streak-weekly-level-${level}`);
+      if (year === currentYear && isDateInWeek(wStart, today)) {
+        cell.classList.add("streak-weekly-cell-current");
+      }
       if (isPerfectHeatmapCell(completedCount, historicalCount)) {
         cell.classList.add("streak-weekly-perfect");
         cell.createEl("span", { text: "✓", cls: "streak-weekly-check" });
@@ -783,6 +845,12 @@ class TrackerView {
       next.setDate(next.getDate() + 7);
       wStart = this.plugin.formatDate(next);
     }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        this._layoutWeeklyHeatmapMonthLabels(monthLabels, row);
+      });
+    });
 
     if (replaceEl) {
       replaceEl.replaceWith(heatmapContainer);

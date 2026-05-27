@@ -109,7 +109,7 @@ Access via **Settings → Streak Tracker**:
 | Config File Path | streak-tracker-config.md | Path to activity config |
 | Data File Path | streak-tracker-data.md | Path to streak data file (logs, stats). Syncs across devices. |
 | Link Color | #8ECCDF | Color for wiki-links in activity names |
-| Refresh UI | — | Manually reload data from the vault file and refresh all tracker views |
+| Refresh UI | — | Manually reload data from the vault file and refresh all tracker views. Also in the command palette as **Streak Tracker: Refresh UI**. |
 
 ## Usage
 
