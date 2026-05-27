@@ -1,5 +1,5 @@
 const { DEFAULT_DATA } = require("../domain/defaults");
-const { normalizeLogs } = require("../domain/logs");
+const { normalizeLogs, makeDeletionCell } = require("../domain/logs");
 const { mergeState } = require("../domain/merge");
 const { pausedStateFromVault } = require("../domain/pause-sync");
 const { recalculateAllStats } = require("../domain/stats");
@@ -105,8 +105,8 @@ class StreakStore {
       this.state.activityStartDates[activityId] = targetDay;
     }
     if (state === "none") {
-      delete this.state.logs[targetDay][activityId];
-      if (!Object.keys(this.state.logs[targetDay]).length) delete this.state.logs[targetDay];
+      this.state.logs[targetDay][activityId] = makeDeletionCell();
+      // do not delete the day object even if empty — the tombstone carries the signal
     } else {
       this.state.logs[targetDay][activityId] = makeLogCell(state);
     }

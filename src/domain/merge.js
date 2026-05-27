@@ -5,6 +5,40 @@ const { getLogState, cellUpdatedAt, normalizeLogCell, normalizeLogs } = require(
 function mergeLogCell(localCell, remoteCell, preferLocalOnTie = false, localWinsAbsent = false) {
   const lState = getLogState(localCell);
   const rState = getLogState(remoteCell);
+  const lIsDel = localCell && localCell.state === "none";
+  const rIsDel = remoteCell && remoteCell.state === "none";
+
+  // Both deletions (or both absent) → pick newer timestamp (local on tie for today rules)
+  if ((lState == null || lIsDel) && (rState == null || rIsDel)) {
+    if (lState == null && rState == null) return null;
+    if (lState == null) return normalizeLogCell(remoteCell); // remote deletion wins
+    if (rState == null) return normalizeLogCell(localCell);   // local deletion wins
+    const lAt = cellUpdatedAt(localCell);
+    const rAt = cellUpdatedAt(remoteCell);
+    if (lAt > rAt) return normalizeLogCell(localCell);
+    if (rAt > lAt) return normalizeLogCell(remoteCell);
+    return normalizeLogCell(preferLocalOnTie ? localCell : remoteCell);
+  }
+
+  // Local is deletion (with timestamp), remote is positive
+  if (lIsDel && rState != null) {
+    const lAt = cellUpdatedAt(localCell);
+    const rAt = cellUpdatedAt(remoteCell);
+    if (lAt > rAt) return normalizeLogCell(localCell); // local deletion wins
+    if (rAt > lAt) return normalizeLogCell(remoteCell);
+    return normalizeLogCell(preferLocalOnTie ? localCell : remoteCell);
+  }
+
+  // Remote is deletion (with timestamp), local is positive
+  if (rIsDel && lState != null) {
+    const lAt = cellUpdatedAt(localCell);
+    const rAt = cellUpdatedAt(remoteCell);
+    if (rAt > lAt) return normalizeLogCell(remoteCell); // remote deletion wins
+    if (lAt > rAt) return normalizeLogCell(localCell);
+    return normalizeLogCell(preferLocalOnTie ? localCell : remoteCell);
+  }
+
+  // Original logic for positive cells and pure absence cases (old data)
   if (lState == null && rState == null) return null;
   if (lState == null) {
     if (localWinsAbsent) return null;
